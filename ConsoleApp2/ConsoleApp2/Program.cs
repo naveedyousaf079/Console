@@ -3,218 +3,312 @@ using IronXL;
 using System.Text.RegularExpressions;
 using MySql.Data.MySqlClient;
 using Aspose.Cells;
+using System.Configuration;
 using Cell = Aspose.Cells.Cell;
 using System.Collections.Generic;
+using Microsoft.Extensions.Configuration;
+using System.IO;
+using Aspose.Cells.Charts;
 
 namespace ConsoleApp2
 {
-    class Program
+    public class Program
     {
-        enum rule_id
-        {
-            A = 0,
-            D = 1,
-            E = 2,
-            F = 3,
-            G = 4,
-            H = 5,
-            I = 6,
-            J = 7,
-            K = 8,
-            L = 9,
-            M = 10,
-            N = 11,
-            O = 12,
-            P = 13,
-            Q = 14,
-            R = 15,
-            S = 16,
-            T = 17,
-            U = 18,
-            V = 19,
-            W = 20,
-            X = 21,
-            Y = 22,
-            Z = 23,
-            AA = 24,
-            AB = 25,
-            AC = 26,
-            AD = 27,
-            AE = 28,
-            AF = 29
-        }
-        public string create_Database(string acc)
-        {
-            MySqlConnection conn;
-            string myConnectionString;
-            string pk_id = "";
-            myConnectionString = "Server=dev-database.intelligize.net;port=3306;Uid=power;Pwd=yAG5f@aGupra;";
+        //hold the connection string value from config
+        private static string ConnectionString { get; set; }
 
+        //hold the database connection
+        private static MySqlConnection DatabaseConnection;
+
+        //check if the attempt to connect to db was successful
+        private static bool DatabaseConnectionSucceful = false;
+
+        //hold the configuration file
+        private static IConfigurationRoot ConfigurationFile;
+
+        //hold the file path for processsing the file
+        private static string FilePath = string.Empty;
+
+        //tell us if the file does exist or not
+        private static bool FileExist = false;
+
+        //hold the current processing Worksheet of Excel File
+        private static Worksheet WorkingWorkSheet;
+
+        // hold the dynamic created insert query  
+        private static string InsertQueryForTable = string.Empty;
+
+        /// <summary>
+        /// Function to set the class variable and
+        /// check the connectivity of the database
+        /// </summary>
+        private static void CheckDatabaseConnectivity()
+        {
+            // get the value of connection string from config file
+            var databaseSettings = ConfigurationFile.GetSection("ConnectionString:MySqlServer").Value;
+
+            //if we are unable to read the string 
+            if(databaseSettings == null || string.IsNullOrWhiteSpace(databaseSettings)) 
+            {
+                Console.WriteLine("Connection string is not provided inthe configuration");
+            }
+            else
+            {
+                ConnectionString = databaseSettings;
+            }
             try
             {
-                conn = new MySqlConnection();
-                conn.ConnectionString = myConnectionString;
-                conn.Open();
-                MySqlCommand cmd = conn.CreateCommand();
-                //var acc = "000000000021015188";
-                cmd.CommandText = "Select pk_id from db_sf.tbl_document doc where doc.accession_number = '" + acc + "'";
-                var result = cmd.ExecuteReader();
-                result.Read();
-                pk_id = result.GetString(0);
-                //Console.WriteLine("Cell pk_id has value '{0}'", result.GetString(0));
-                conn.Close();
+                //try to connect the database using the connection string we read from file
+                DatabaseConnection = new MySqlConnection(ConnectionString);
+
+                //try to open the connection
+                DatabaseConnection.Open();
+                Console.WriteLine("Database is connecting successfully");
+
+                //make sure the connection is closed also
+                DatabaseConnection.Close();
+
+                //set the database connectivity as successful
+                DatabaseConnectionSucceful = true;
             }
-            catch (MySql.Data.MySqlClient.MySqlException ex)
+            catch(Exception ex)
             {
-                Console.WriteLine(ex.Message);
+                Console.WriteLine("I am unable to build connection to the database successfully");
+                //Will be replaced by Logger
+                Console.WriteLine(ex.ToString());
             }
-            return pk_id;
+
         }
-        public static void DeleteItemCounts(string DocumentId)
+        /// <summary>
+        /// Function to load and check the configuration file
+        /// </summary>
+        private static void BuildConfigurationFile()
         {
-            //string query = string.Format(@"Delete from db_sf.tbl_item_count where fk_document_id = {0}", DocumentId);
-            MySqlConnection conn;
-            string myConnectionString;
-            myConnectionString = "Server=dev-database.intelligize.net;port=3306;Uid=power;Pwd=yAG5f@aGupra;";
-            int x = 0;
-            Int32.TryParse(DocumentId, out x);
             try
             {
-                conn = new MySqlConnection();
-                conn.ConnectionString = myConnectionString;
-                conn.Open();
-                MySqlCommand cmd = conn.CreateCommand();
-                cmd.CommandText = "Delete from db_test.tbl_item_count_qc where fk_document_id = '" + x + "'";
-                cmd.ExecuteNonQuery();
-                conn.Close();
+                //going to get the configuration file from the current folder i-e bin/debug/5.0/
+                ConfigurationFile = new ConfigurationBuilder().SetBasePath(AppDomain.CurrentDomain.BaseDirectory).AddJsonFile("appsettings.json").Build();
+                Console.WriteLine("I am able to read configuration file successfully!!!");
             }
-            catch (MySql.Data.MySqlClient.MySqlException ex)
+            catch (Exception ex) 
             {
-                Console.WriteLine(ex.Message);
+                Console.WriteLine("I am unable to read configuration file !!!");
+                //Will be replaced by Logger
+                Console.WriteLine(ex.ToString());
             }
         }
-        public static void insert_Database(string fk_document_id, int rule_id, string section_count)
+        /// <summary>
+        /// Function to set the File Path and 
+        /// check if file exist
+        ///  </summary>
+        private static void CheckExcelFilePath()
         {
-            MySqlConnection conn;
-            string myConnectionString;
-            int x = 0, y= 0;
-            Int32.TryParse(fk_document_id, out x);
-            Int32.TryParse(section_count, out y);
-            myConnectionString = "Server=dev-database.intelligize.net;port=3306;Uid=power;Pwd=yAG5f@aGupra;";
             try
             {
-                conn = new MySqlConnection();
-                conn.ConnectionString = myConnectionString;
-                conn.Open();
-                MySqlCommand cmd = conn.CreateCommand();
-                cmd.CommandText = "INSERT INTO db_test.tbl_item_count_qc(fk_document_id,rule_id,section_count) VALUES(@fk_document_id, @rule_id, @section_count)";
-                cmd.Parameters.AddWithValue("@fk_document_id", x);
-                cmd.Parameters.AddWithValue("@rule_id", rule_id);
-                cmd.Parameters.AddWithValue("@section_count", y);
-                cmd.ExecuteNonQuery();
-                conn.Close();
+                // read the file path from the config
+                var filePath = ConfigurationFile.GetSection("FilePath:Sales").Value;
+
+                // check if the file exist at the path provided in config file
+                if(File.Exists(filePath)) 
+                {
+                    Console.WriteLine("file does exist at the path mentioned!!!");
+                    FilePath = filePath;
+                    FileExist= true;
+                }
+                else
+                {
+                    Console.WriteLine("File does not exist at the path you provided in the config!!!");
+                }
             }
-            catch (MySql.Data.MySqlClient.MySqlException ex)
+            catch(Exception ex)
             {
-                Console.WriteLine(ex.Message);
+                Console.WriteLine("I am unable to read the file !!!");
+                //Will be replaced by Logger
+                Console.WriteLine(ex.ToString());
             }
+            
         }
-        static void Main(string[] args)
+        /// <summary>
+        /// Function to read Password protected Excel File
+        /// </summary>
+        private static void LoadPasswordProtectedFileForRead()
         {
-            // Load the license to avoid trial version limitations while opening a protected file
-            //License cellsLicense = new License();
-            //cellsLicense.SetLicense("Aspose.Cells.lic");
-
-            // Create a LoadOptions class object for setting passwords
-            LoadOptions xlsxLoadOptions = new LoadOptions(LoadFormat.Xlsx);
-
-            // Set original password to open the protected file
-            //xlsxLoadOptions.Password = "Test@1231";
-
             try
             {
+                // Load the license to avoid trial version limitations while opening a protected file
+                //License cellsLicense = new License();
+                //cellsLicense.SetLicense("Aspose.Cells.lic");
+
+                // Create a LoadOptions class object for setting passwords
+                LoadOptions xlsxLoadOptions = new LoadOptions(LoadFormat.Xlsx);
+
+                // Set original password to open the protected file
+                // Make sure to read it from config file
+                xlsxLoadOptions.Password = "Test@1231";
                 // Load the encrypted XLSX file with the appropriate load options
-                Workbook protectedFile = new Workbook("C:/Users/naveed.yousaf/source/repos/ConsoleApp2/ConsoleApp2/sales.xlsx", xlsxLoadOptions);
-                Worksheet worksheet = protectedFile.Worksheets["Sheet1"];
-
-                System.Console.WriteLine("Password protected file opened successfully");
-                Cells cells = worksheet.Cells;
-                List<string> myList = new List<string>();
-                int col = CellsHelper.ColumnNameToIndex("A");
-                int last_row = worksheet.Cells.GetLastDataRow(col);
-                string Query = string.Empty;
-                for (int i = 0; i <= last_row; i++)
-                {
-                    if(cells[i, col].Value != null)
-                    {
-                        Regex.Replace(cells[i, col].Value.ToString(), "<.*?>", String.Empty);
-                        string InsertQuery = string.Format(
-                            "INSERT INTO naveeddb.demo (text) VALUES(\"{0}\");",
-                            cells[i, col].Value.ToString());
-                        myList.Add(cells[i, col].Value.ToString());
-                        Query += InsertQuery;
-                    }
-                }
-                MySqlConnection conn;
-                string myConnectionString;
-                myConnectionString = "server=127.0.0.1;uid=root;pwd=Test@1231;database=naveeddb";
-                try
-                {
-                    conn = new MySqlConnection();
-                    conn.ConnectionString = myConnectionString;
-                    conn.Open();
-                    MySqlCommand cmd = conn.CreateCommand();
-                    cmd.CommandText = Query;
-                    cmd.ExecuteNonQuery();
-                    conn.Close();
-                }
-                catch (MySql.Data.MySqlClient.MySqlException ex)
-                {
-                    Console.WriteLine(ex.Message);
-                }
+                Workbook protectedFile = new Workbook(FilePath, xlsxLoadOptions);
+                WorkingWorkSheet = protectedFile.Worksheets["Sheet1"];
+                Console.WriteLine("File opened successfully");
 
             }
             catch (Exception ex)
             {
-                System.Console.WriteLine(ex.Message);
+                Console.WriteLine("Unable to open file in read Mode!!!");
+                //Will be replaced by Logger
+                Console.WriteLine(ex.ToString());
             }
-            WorkBook workbook = WorkBook.Load("C:/Users/naveed.yousaf/source/repos/ConsoleApp2/ConsoleApp2/sales.xlsx");
-            WorkSheet sheet = workbook.GetWorkSheet("Sheet1");
-            //Select cells easily in Excel notation and return the calculated value
-            int cellValue = sheet["A2"].IntValue;
-            string value1 = sheet["A2"].ToString();
-            // Read from Ranges of cells elegantly.
-            string pk_id = "";
-            Program pr = new Program();
-            foreach (var cell in sheet)
+        }
+        /// <summary>
+        /// Function to load File in Memory for 
+        /// Further Processing
+        /// </summary>
+        private static void LoadFileForRead()
+        {
+            try
             {
-                var output = Regex.Replace(cell.AddressString, @"[\d-]", string.Empty);
-                if (cell.Text != string.Empty && cell.ColumnIndex != 1)
+                //will provide the options as a parameter while reading the file
+                LoadOptions xlsxLoadOptions = new LoadOptions(LoadFormat.Xlsx);
+                //will try to open and read the file
+                Workbook readFile = new Workbook(FilePath, xlsxLoadOptions);
+                //will go to the worksheet of the file
+                WorkingWorkSheet = readFile.Worksheets["Sheet1"];
+                Console.WriteLine("File opened successfully");
+            }
+            catch (Exception ex) 
+            {
+                Console.WriteLine("Unable to open file in read Mode!!!");
+                //Will be replaced by Logger
+                Console.WriteLine(ex.ToString());
+            }
+        }
+
+        /// <summary>
+        /// Once the file is read ind is in memory 
+        /// and we have worksheet available then 
+        /// we are ready to process the file
+        /// </summary>
+        private static void ProcessLoadedFile()
+        {
+            try
+            {
+                //Get the worksheet cells
+                 Cells cells = WorkingWorkSheet.Cells;
+                if(cells == null)
                 {
-                    if (Enum.IsDefined(typeof(rule_id), output))
+                    Console.WriteLine("I am unable to access the cells of the Excel Worksheet");
+                }
+                else
+                {
+                    //Values to be sent to db
+                    List<string> valuesForDB = new List<string>();
+
+                    //We are reading only column A
+                    int col = CellsHelper.ColumnNameToIndex("A");
+
+                    //Get the indedx of cell in last row 
+                    int lastRow = cells.GetLastDataRow(col);
+
+                    //Loop the Cells to read the value in them
+                    for (int i = 0; i <= lastRow; i++)
                     {
-                        if (cell.ColumnIndex == 0)
+                        //Check if the value is not Null
+                        if (cells[i, col].Value != null)
                         {
-                            cell.Text = cell.Text.Replace("-", string.Empty);
-                            pk_id = pr.create_Database(cell.Text);
-                            Console.WriteLine("Cell pk_id has value '{0}'", pk_id);
-                            Console.WriteLine("Cell accession_number has value '{0}'", cell.Text);
-                            if (pk_id.Length > 0)
-                            {
-                                DeleteItemCounts(pk_id);
-                            }
-                            //DeleteItemCounts
-                        }
-                        else
-                        {
-                            Console.WriteLine("Cell {0} has value '{1}'", cell.ColumnIndex - 2, cell.Text);
-                            if(pk_id.Length > 0)
-                            {
-                                insert_Database(pk_id, cell.ColumnIndex - 2, cell.Text);
-                            }
+                            //Replace any HTMNL Tags with empty string as wo do not need the
+                            // TODO: replace the script tags also
+                            Regex.Replace(cells[i, col].Value.ToString(), "<.*?>", String.Empty);
+                            
+                            //Query for the inserting the record to db
+                            string InsertQuery = string.Format( "INSERT INTO exceldump (text) VALUES(\"{0}\");", cells[i, col].Value.ToString());
+                            
+                            //To check with the values in debug Mode
+                            valuesForDB.Add(cells[i, col].Value.ToString());
+
+                            //Append the global insert query
+                            InsertQueryForTable += InsertQuery;
                         }
                     }
                 }
+
+            }
+            catch (Exception ex ) 
+            {
+                Console.WriteLine("I got exception while processing the cells of the worksheet");
+                //Will be replaced by Logger
+                Console.WriteLine(ex.ToString());
+            }
+        }
+        /// <summary>
+        /// Function will store the value in the database
+        /// using the InsertQuery already built
+        /// </summary>
+        private static void StoreValuesInDb()
+        {
+            try
+            {
+                //open the connection to database
+                DatabaseConnection.Open();
+                //create the command to execute 
+                MySqlCommand sqlCommand = DatabaseConnection.CreateCommand();
+                //command will have the insert script
+                sqlCommand.CommandText = InsertQueryForTable;
+                //execute the command and expect nothing in return
+                sqlCommand.ExecuteNonQuery();
+                //Close the connection successfully
+                DatabaseConnection.Close();
+            }
+            catch (MySql.Data.MySqlClient.MySqlException ex)
+            {
+                Console.WriteLine(ex.Message);
+                //Will be replaced by Logger
+                Console.WriteLine(ex.ToString());
+            }
+            finally
+            {
+                DatabaseConnection.Close();
+            }
+        }
+        static void Main(string[] args)
+        {
+            BuildConfigurationFile();
+            CheckDatabaseConnectivity();
+            CheckExcelFilePath();
+            if (FileExist)
+            {
+                LoadFileForRead();
+            }
+            try
+            {
+                if(WorkingWorkSheet == null)
+                {
+                    Console.WriteLine("Unable to get worksheet from the Excel File so can not proceed further");
+                }
+                else
+                {
+                    ProcessLoadedFile();
+                    if (!DatabaseConnectionSucceful)
+                    {
+                        Console.WriteLine("Unable to connect database so did not run the insert query");
+                    }
+                    else
+                    {
+                        if (string.IsNullOrWhiteSpace(InsertQueryForTable))
+                        {
+                            Console.WriteLine("No data in Insert Query for inserting into the table");
+                        }
+                        else
+                        {
+                            StoreValuesInDb();
+                            Console.WriteLine("Data stored in database successfully!!!");
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Console.WriteLine(ex.Message);
+                //Will be replaced by Logger
+                Console.WriteLine(ex.ToString());
             }
         }
     }
